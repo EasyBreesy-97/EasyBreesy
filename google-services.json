@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "986711830893",
+    "project_id": "lifeeasy-app-e917c",
+    "storage_bucket": "lifeeasy-app-e917c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:986711830893:android:66a99966363c5c69792a64",
+        "android_client_info": {
+          "package_name": "com.easybreesy.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "986711830893-o7nc8q9do0bj5bi0jn4r7la7nr40v134.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDC0Tfbk-usciMPptv3ft6-rO3UKScSWSA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "986711830893-o7nc8q9do0bj5bi0jn4r7la7nr40v134.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
