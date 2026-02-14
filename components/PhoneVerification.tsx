@@ -1,30 +1,26 @@
 // components/PhoneVerification.tsx
-import React, { useState, useRef, useEffect } from 'react';
+import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  TextInput,
-  Alert,
-  StyleSheet,
   ActivityIndicator,
-  Text,
-  TouchableOpacity,
-  Platform,
+  Alert,
   Keyboard,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
   TouchableWithoutFeedback,
+  View
 } from 'react-native';
-import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
-import { firebaseConfig } from '@/lib/firebase';
-import { auth } from '@/lib/firebase';
-import { PhoneAuthProvider, signInWithCredential, linkWithCredential } from 'firebase/auth';
 
 interface PhoneVerificationProps {
   onSuccess?: () => void;
 }
 
 const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
-  const [phone, setPhone] = useState('');
+  const [confirm, setConfirm] = useState<FirebaseAuthTypes.ConfirmationResult | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [code, setCode] = useState('');
-  const [verificationId, setVerificationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,11 +34,6 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [verifyCooldown, setVerifyCooldown] = useState(0);
   
-  const recaptchaVerifier = useRef<any>(null);
-  const verificationTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const cooldownTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const verifyCooldownTimerRef = useRef<NodeJS.Timeout | null>(null);
-
   // Constants
   const OTP_VALIDITY_DURATION = 5 * 60 * 1000; // 5 minutes
   const SEND_COOLDOWN = 10 * 60 * 1000; // 10 minutes
@@ -94,7 +85,7 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
         // Check if OTP has expired (5 minutes)
         if (elapsed >= OTP_VALIDITY_DURATION) {
           setCodeError('Verification code has expired. Please request a new one.');
-          setVerificationId(null);
+          setConfirm(null);
           setVerificationStartTime(null);
           clearInterval(interval);
         }
@@ -122,7 +113,7 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
 
   const handlePhoneChange = (text: string) => {
     const formatted = formatPhoneNumber(text);
-    setPhone(formatted);
+    setPhoneNumber(formatted);
     setError(null);
   };
 
@@ -144,12 +135,12 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
     setCodeError(null);
     
     // Validate phone number
-    if (!phone) {
+    if (!phoneNumber) {
       setError('Please enter your phone number');
       return;
     }
 
-    if (!isValidPhoneNumber(phone)) {
+    if (!isValidPhoneNumber(phoneNumber)) {
       setError('Please enter a valid phone number with country code (e.g., +60123456789)');
       return;
     }
@@ -176,22 +167,14 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
     Keyboard.dismiss();
 
     try {
-      console.log('Starting OTP process for:', phone);
+      console.log('Starting OTP process for:', phoneNumber);
       
-      if (!recaptchaVerifier.current) {
-        throw new Error('Security verification not ready. Please try again.');
-      }
-
-      const phoneProvider = new PhoneAuthProvider(auth);
-      const verificationId = await phoneProvider.verifyPhoneNumber(
-        phone,
-        recaptchaVerifier.current
-      );
-
-      console.log('OTP sent successfully, verificationId:', verificationId);
+      const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
+      
+      console.log('OTP sent successfully');
       
       // Set states
-      setVerificationId(verificationId);
+      setConfirm(confirmation);
       setVerificationStartTime(Date.now());
       setLastSentTime(Date.now());
       setSendAttempts(prev => prev + 1);
@@ -232,12 +215,6 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
             errorMessage = 'Phone verification is currently unavailable. Please try another method or contact support.';
             showAlert = true;
             break;
-          case 'auth/argument-error':
-            errorMessage = 'Security verification failed. Please try again.';
-            break;
-          case 'auth/captcha-check-failed':
-            errorMessage = 'Security check failed. Please complete the verification and try again.';
-            break;
           case 'auth/network-request-failed':
             errorMessage = 'Network error. Please check your internet connection and try again.';
             break;
@@ -260,7 +237,7 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
     // Reset error
     setCodeError(null);
     
-    if (!verificationId) {
+    if (!confirm) {
       setCodeError('No verification session found. Please request a new code.');
       return;
     }
@@ -275,7 +252,7 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
     const elapsed = now - verificationStartTime;
     if (elapsed >= OTP_VALIDITY_DURATION) {
       setCodeError('Verification code has expired. Please request a new one.');
-      setVerificationId(null);
+      setConfirm(null);
       setVerificationStartTime(null);
       return;
     }
@@ -299,29 +276,13 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
       console.log('Verifying OTP with code:', code);
       console.log(`Attempt ${verifyAttempts + 1} of ${MAX_VERIFY_ATTEMPTS}`);
       
-      const credential = PhoneAuthProvider.credential(verificationId, code);
-      
-      // Check if user is anonymous
-      const currentUser = auth.currentUser;
-      
-      let result;
-      if (currentUser?.isAnonymous) {
-        console.log('Linking phone to anonymous user');
-        result = await linkWithCredential(currentUser, credential);
-        Alert.alert(
-          'Phone Verified Successfully! 🎉', 
-          'Your phone number has been linked to your account.',
-          [{ text: 'Continue', onPress: () => onSuccess && onSuccess() }]
-        );
-      } else {
-        console.log('Signing in with phone');
-        result = await signInWithCredential(auth, credential);
-        Alert.alert(
-          'Phone Verified Successfully! 🎉', 
-          'You have successfully verified your phone number.',
-          [{ text: 'Continue', onPress: () => onSuccess && onSuccess() }]
-        );
-      }
+      await confirm.confirm(code);
+
+      Alert.alert(
+        'Phone Verified Successfully! 🎉', 
+        'Your phone number has been successfully verified.',
+        [{ text: 'Continue', onPress: () => onSuccess && onSuccess() }]
+      );
 
       // Success - reset all security states
       if (onSuccess) onSuccess();
@@ -351,7 +312,7 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
           case 'auth/code-expired':
             errorMessage = 'This verification code has expired. Please request a new one.';
             showAlert = true;
-            setVerificationId(null);
+            setConfirm(null);
             setVerificationStartTime(null);
             break;
           case 'auth/credential-already-in-use':
@@ -362,9 +323,8 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
             errorMessage = 'This account has been disabled. Please contact support.';
             showAlert = true;
             break;
-          case 'auth/invalid-credential':
-            errorMessage = 'Invalid verification. Please request a new code.';
-            showAlert = true;
+          case 'auth/network-request-failed':
+            errorMessage = 'Network error. Please check your internet connection and try again.';
             break;
           default:
             errorMessage = `Verification failed. ${error.message || 'Please try again.'}`;
@@ -383,9 +343,9 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
   };
 
   const resetAllStates = () => {
-    setPhone('');
+    setPhoneNumber('');
     setCode('');
-    setVerificationId(null);
+    setConfirm(null);
     setVerificationStartTime(null);
     setSendAttempts(0);
     setVerifyAttempts(0);
@@ -436,15 +396,7 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <View style={styles.container}>
-        <FirebaseRecaptchaVerifierModal
-          ref={recaptchaVerifier}
-          firebaseConfig={firebaseConfig}
-          attemptInvisibleVerification={false}
-          title="Verify you are human"
-          cancelLabel="Cancel"
-        />
-
-        {!verificationId ? (
+        {!confirm ? (
           <View style={styles.form}>
             <Text style={styles.label}>Enter Your Phone Number</Text>
             
@@ -466,7 +418,7 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
               <TextInput
                 style={[styles.input, error && styles.inputError]}
                 placeholder="+60123456789"
-                value={phone}
+                value={phoneNumber}
                 onChangeText={handlePhoneChange}
                 keyboardType="phone-pad"
                 autoCapitalize="none"
@@ -495,10 +447,10 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
               <TouchableOpacity
                 style={[
                   styles.button, 
-                  (!isValidPhoneNumber(phone) || loading || timeRemaining > 0 || verifyCooldown > 0) && styles.buttonDisabled
+                  (!isValidPhoneNumber(phoneNumber) || loading || timeRemaining > 0 || verifyCooldown > 0) && styles.buttonDisabled
                 ]}
                 onPress={handleSendOTP}
-                disabled={!isValidPhoneNumber(phone) || loading || timeRemaining > 0 || verifyCooldown > 0}
+                disabled={!isValidPhoneNumber(phoneNumber) || loading || timeRemaining > 0 || verifyCooldown > 0}
               >
                 <Text style={styles.buttonText}>
                   {timeRemaining > 0 ? `Wait ${formatTime(timeRemaining)}` : 
@@ -528,7 +480,7 @@ const PhoneVerification: React.FC<PhoneVerificationProps> = ({ onSuccess }) => {
             </View>
             
             <Text style={styles.phoneInfo}>
-              Code sent to: <Text style={styles.phoneNumber}>{phone}</Text>
+              Code sent to: <Text style={styles.phoneNumber}>{phoneNumber}</Text>
             </Text>
             
             <View style={styles.inputContainer}>
